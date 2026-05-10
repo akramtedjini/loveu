@@ -5,7 +5,6 @@
 <title>Angel — Massive Attack ❤️</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
   body {
     background: #000;
     height: 100vh;
@@ -16,31 +15,38 @@
     font-family: Arial, sans-serif;
     cursor: pointer;
   }
-
   .heart {
     position: relative;
     width: 0;
     height: 0;
     transition: filter 0.3s;
   }
-
   .word {
     position: absolute;
     font-size: 14px;
     font-weight: bold;
     white-space: nowrap;
     color: #ff4d8d;
-    text-shadow:
-      0 0 8px  #ff1a5c,
-      0 0 16px #ff0044;
+    text-shadow: 0 0 8px #ff1a5c, 0 0 16px #ff0044;
     opacity: 0;
     will-change: opacity, transform;
+  }
+  /* Falling rain words */
+  .rain {
+    position: fixed;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    font-weight: bold;
+    color: #ff6fa3;
+    text-shadow: 0 0 10px #ff1a5c, 0 0 20px #ff0044;
+    pointer-events: none;
+    will-change: transform, opacity;
+    white-space: nowrap;
   }
 </style>
 </head>
 <body>
-<audio id="audio" src="angel.mp3" loop></audio>
-
+  <audio id="audio" src="angel.mp3" loop></audio>
   <div class="heart" id="heart"></div>
 
 <script>
@@ -49,14 +55,11 @@
   const SCALE = 18;
   const words = [];
 
-  // Build the heart
+  // Build heart
   for (let i = 0; i < NUM; i++) {
     const t = (i / NUM) * Math.PI * 2;
     const x =  16 * Math.pow(Math.sin(t), 3);
-    const y = -(13 * Math.cos(t)
-              - 5  * Math.cos(2*t)
-              - 2  * Math.cos(3*t)
-              -      Math.cos(4*t));
+    const y = -(13 * Math.cos(t) - 5*Math.cos(2*t) - 2*Math.cos(3*t) - Math.cos(4*t));
 
     const w = document.createElement('div');
     w.className   = 'word';
@@ -65,26 +68,85 @@
     w.style.top   = (y * SCALE) + 'px';
     w.dataset.tilt = 0;
 
+    const dist = Math.sqrt(x*x + y*y) || 1;
+    w.dataset.dx = x / dist;
+    w.dataset.dy = y / dist;
+    w.dataset.burst = 400 + Math.random() * 700;
+
     heart.appendChild(w);
     words.push(w);
   }
 
-  // Animation state
+  // ---- Animation state ----
   let phase    = 0;
   let elapsed  = 0;
   let lastTime = performance.now();
-  const CYCLE  = 30;
+
+  const CYCLE      = 11.21;
+  const CLIMAX_AT  = 4.74;        // explosion moment
+  const EXPLOSION_DURATION = 1.4; // explosion phase length
 
   function getSpeed(t) {
-    const r = t / CYCLE;
-    if (r < 0.40) {
-      return 0.4 + r * 1.5;
-    } else if (r < 0.73) {
-      const u = (r - 0.40) / 0.33;
-      return 1.0 + Math.pow(u, 2.2) * 11;
-    } else {
-      const u = (r - 0.73) / 0.27;
-      return 12 + Math.sin(t * 30) * 3 + u * 4;
+    if (t < CLIMAX_AT) {
+      const r = t / CLIMAX_AT;
+      // very steep exponential acceleration
+      return 0 + Math.pow(r, 1.1) * 26;
+    }
+    return 27;
+  }
+
+  // ---- Rain words pool ----
+  const rainWords = [];
+  let rainSpawnTimer = 0;
+
+  function spawnRainWord() {
+    const el = document.createElement('div');
+    el.className = 'rain';
+    el.textContent = 'I love you';
+
+    const startX = Math.random() * window.innerWidth;
+    const fontSize = 10 + Math.random() * 12;       // varied size for depth
+    const speed = 30 + Math.random() * 60;          // px per second (slow)
+    const drift = (Math.random() - 0.5) * 20;       // gentle horizontal drift
+    const opacity = 0.3 + Math.random() * 0.6;
+    const tilt = (Math.random() - 0.5) * 20;
+
+    el.style.left = startX + 'px';
+    el.style.top = '-30px';
+    el.style.fontSize = fontSize + 'px';
+    el.style.opacity = opacity;
+    el.style.transform = `rotate(${tilt}deg)`;
+
+    document.body.appendChild(el);
+    rainWords.push({
+      el,
+      x: startX,
+      y: -30,
+      vy: speed,
+      vx: drift,
+      tilt,
+      baseOpacity: opacity
+    });
+  }
+
+  function updateRain(dt) {
+    const H = window.innerHeight;
+    for (let i = rainWords.length - 1; i >= 0; i--) {
+      const r = rainWords[i];
+      r.y += r.vy * dt;
+      r.x += r.vx * dt;
+      r.el.style.transform = `translate(${r.x - parseFloat(r.el.style.left)}px, ${r.y + 30}px) rotate(${r.tilt}deg)`;
+
+      // fade out near bottom
+      if (r.y > H - 100) {
+        const fade = Math.max(0, 1 - (r.y - (H - 100)) / 100);
+        r.el.style.opacity = r.baseOpacity * fade;
+      }
+
+      if (r.y > H + 50) {
+        r.el.remove();
+        rainWords.splice(i, 1);
+      }
     }
   }
 
@@ -92,47 +154,103 @@
     const dt = (now - lastTime) / 1000;
     lastTime = now;
     elapsed += dt;
-    if (elapsed >= CYCLE) elapsed = 0;
+    if (elapsed >= CYCLE) {
+  elapsed = 0;
+  phase = 0;
+  clearRain();
+}
 
     const speed = getSpeed(elapsed);
     phase += speed * dt;
 
-    const intensity = Math.min(speed / 14, 1);
+    const intensity = Math.min(speed / 18, 1);
     const hue        = 340 - intensity * 15;
     const lightness  = 65 + intensity * 10;
-    const glow       = 8 + intensity * 25;
+    const glow       = 8 + intensity * 30;
 
-    const climaxPulse = intensity > 0.7
-      ? 1 + Math.sin(elapsed * 25) * 0.04
-      : 1;
-    heart.style.transform = `scale(${climaxPulse})`;
-    heart.style.filter    = `drop-shadow(0 0 ${intensity * 30}px rgba(255, 30, 90, ${intensity}))`;
+    // Phase detection
+    const explodeT = elapsed >= CLIMAX_AT
+      ? Math.min(1, (elapsed - CLIMAX_AT) / EXPLOSION_DURATION)
+      : 0;
+    const isExploding = explodeT > 0 && explodeT < 1;
+    const isRaining   = elapsed >= CLIMAX_AT;  // rain continues after explosion
 
+    // ----- Spawn rain words during the rain phase -----
+    if (isRaining) {
+      rainSpawnTimer += dt;
+      const spawnInterval = isExploding ? 0.02 : 0.1;  // dense at explosion, lighter after
+      while (rainSpawnTimer >= spawnInterval) {
+        spawnRainWord();
+        rainSpawnTimer -= spawnInterval;
+      }
+    } else {
+      rainSpawnTimer = 0;
+    }
+    updateRain(dt);
+
+    // ----- Heart container effect -----
+    if (isExploding) {
+      heart.style.transform = `scale(${1 + explodeT * 0.4})`;
+      heart.style.filter    = `drop-shadow(0 0 ${60 + explodeT * 100}px rgba(255, 30, 90, ${1 - explodeT}))`;
+    } else if (explodeT >= 1) {
+      heart.style.transform = `scale(0)`;
+      heart.style.filter    = `none`;
+    } else {
+      const pulse = intensity > 0.7 ? 1 + Math.sin(elapsed * 25) * 0.04 : 1;
+      heart.style.transform = `scale(${pulse})`;
+      heart.style.filter    = `drop-shadow(0 0 ${intensity * 30}px rgba(255, 30, 90, ${intensity}))`;
+    }
+
+    // ----- Update heart words -----
     for (let i = 0; i < NUM; i++) {
-      const wp = (phase + i / NUM) % 1;
-      const sharpness = 2 + intensity * 6;
-      const op  = Math.pow(Math.sin(wp * Math.PI), sharpness);
-
       const w = words[i];
-      const sc = 0.7 + op * (0.3 + intensity * 0.3);
-      w.style.opacity   = op;
-      w.style.transform = `translate(-50%, -50%) rotate(${w.dataset.tilt}deg) scale(${sc})`;
-      w.style.color     = `hsl(${hue}, 100%, ${lightness}%)`;
-      w.style.textShadow = `0 0 ${glow}px hsl(${hue}, 100%, 50%), 0 0 ${glow * 2}px hsl(${hue}, 100%, 40%)`;
+
+      if (explodeT >= 1) {
+        w.style.opacity = 0;   // gone, rain takes over
+      } else if (explodeT > 0) {
+        // EXPLOSION
+        const dx = parseFloat(w.dataset.dx);
+        const dy = parseFloat(w.dataset.dy);
+        const burst = parseFloat(w.dataset.burst);
+        const offX = dx * burst * explodeT;
+        const offY = dy * burst * explodeT;
+        const op = Math.max(0, 1 - explodeT);
+        const sc = 1 + explodeT * 0.7;
+        w.style.opacity = op;
+        w.style.transform = `translate(calc(-50% + ${offX}px), calc(-50% + ${offY}px)) scale(${sc})`;
+        w.style.color = `hsl(${340 - explodeT * 20}, 100%, 75%)`;
+        w.style.textShadow = `0 0 ${30}px #ff0044, 0 0 ${60}px #ff0044`;
+      } else {
+        // NORMAL WAVE
+        const wp = (phase + i / NUM) % 1;
+        const sharpness = 2 + intensity * 6;
+        const op  = Math.pow(Math.sin(wp * Math.PI), sharpness);
+        const sc = 0.7 + op * (0.3 + intensity * 0.3);
+        w.style.opacity   = op;
+        w.style.transform = `translate(-50%, -50%) rotate(${w.dataset.tilt}deg) scale(${sc})`;
+        w.style.color     = `hsl(${hue}, 100%, ${lightness}%)`;
+        w.style.textShadow = `0 0 ${glow}px hsl(${hue}, 100%, 50%), 0 0 ${glow * 2}px hsl(${hue}, 100%, 40%)`;
+      }
     }
 
     requestAnimationFrame(frame);
   }
   requestAnimationFrame((t) => { lastTime = t; frame(t); });
 
- function restart() {
-  elapsed = 0;
-  phase   = 0;
-  const audio = document.getElementById('audio');
-  audio.currentTime = 0;
-  audio.play();
-}
+  // Clean rain on restart
+  function clearRain() {
+    rainWords.forEach(r => r.el.remove());
+    rainWords.length = 0;
+  }
 
+  function restart() {
+    elapsed = 0;
+    phase = 0;
+    clearRain();
+    const audio = document.getElementById('audio');
+    audio.currentTime = 0;
+    audio.play();
+  }
   document.addEventListener('keydown', (e) => {
     if (e.code === 'Space') { e.preventDefault(); restart(); }
   });
